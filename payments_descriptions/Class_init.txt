@@ -1,0 +1,32 @@
+Python SDK – Class Initialization
+SDK details
+anchor image
+Class Initialization
+StandardCheckoutClient class will be used to communicate with the PhonePe APIs. You can initiate the instance of this class only once.
+Use required credentials while initializing the object.
+
+Parameters
+Parameter Name	Data Type	Mandatory	Description
+client_id	int	yes	Client ID for secure communication with PhonePe.
+client_version	str	yes	Client version for secure communication with PhonePe.
+client_secret	str	yes	Secret provided by PhonePe. To be kept secure on the merchant side.
+env	str	yes	Environment for the StandardCheckoutClient: 
+‘PRODDUCTION’ (production), 
+‘SANDBOX’ (testing).
+
+Throws PhonePeException
+If another StandardCheckoutClient object is initialized, PhonePeException is thrown.
+
+Example Usage :
+
+from phonepe.sdk.pg.payments.v2.standard_checkout_client import StandardCheckoutClient
+from phonepe.sdk.pg.env import Env
+ 
+client_secret = "<YOUR_CLIENT_SECRET>"
+client_id = "<YOUR_CLIENT_ID>"
+client_version = 1  # insert your client version
+env = Env.SANDBOX
+phonepe_client = StandardCheckoutClient.get_instance(client_id=client_id,
+                                                    client_secret=client_secret,
+                                                    client_version=client_version,
+                                                    env=env)

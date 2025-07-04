@@ -1,0 +1,9 @@
+<h1>Inventory Alert</h1>
+<p>Dear Admin,</p>
+<p>The following products are running low on stock:</p>
+<ul>
+    {% for product in low_stock_products %}
+    <li>{{ product.name }} (Stock: {{ product.stock_quantity }})</li>
+    {% endfor %}
+</ul>
+<p>Best regards,<br>Team</p>

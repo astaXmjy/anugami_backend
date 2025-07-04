@@ -1,0 +1,48 @@
+<!-- templates/emails/verification.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #4F46E5;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .content {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 0 0 5px 5px;
+        }
+        .otp {
+            font-size: 32px;
+            font-weight: bold;
+            color: #4F46E5;
+            text-align: center;
+            padding: 20px;
+            margin: 20px 0;
+            background-color: white;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Verify Your Email</h1>
+        </div>
+        <div class="content">
+            <p>Your verification code is:</p>
+            <div class="otp">{{ otp }}</div>
+            <p>This code will expire in 10 minutes.</p>
+        </div>
+    </div>
+</body>
+</html>

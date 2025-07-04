@@ -1,0 +1,75 @@
+Python SDK – Introduction
+A python library for integrating with PhonePe APIs.
+
+Installation
+anchor image
+Requires python 3.9 or later
+
+pip install --index-url https://phonepe.mycloudrepo.io/public/repositories/phonepe-pg-sdk-python  --extra-index-url https://pypi.org/simple phonepe_sdk
+Quick Start
+anchor image
+To get your client ID and secret, refer to the PhonePe business dashboard.
+
+Create an instance of the StandardCheckoutClient class:
+from phonepe.sdk.pg.payments.v2.standard_checkout_client import StandardCheckoutClient
+from phonepe.sdk.pg.env import Env
+ 
+client_id = "<YOUR_CLIENT_ID>"
+client_secret = "<YOUR_CLIENT_SECRET>"
+client_version = 1  # Insert your client version here
+env = Env.SANDBOX  # Change to Env.PRODUCTION when you go live
+ 
+standard_phonepe_client = StandardCheckoutClient.get_instance(client_id=client_id,
+                                                              client_secret=client_secret,
+                                                              client_version=client_version,
+                                                              env=env)
+Initiate an order using Checkout Page :
+To init a pay request, we make a request object using
+
+StandardCheckoutPayRequest.build_standard_checkout_pay_request
+from uuid import uuid4
+from phonepe.sdk.pg.payments.v2.models.request.standard_checkout_pay_request import StandardCheckoutPayRequest
+ 
+unique_order_id = str(uuid4())
+ui_redirect_url = "https://www.merchant.com/redirect"
+amount = 100
+standard_pay_request = StandardCheckoutPayRequest.build_request(merchant_order_id=unique_order_id,
+                                                                amount=amount,
+                                                                redirect_url=ui_redirect_url)
+standard_pay_response = standard_phonepe_client.pay(standard_pay_request)
+checkout_page_url = standard_pay_response.redirect_url
+The data will be in a StandardCheckoutPayResponse object.
+The checkout_page_url you get can be handled by redirecting the user to that url on the front end.
+
+Check status of order
+To check the status of the order.
+
+unique_order_id = "INSERT_YOUR_UNIQUE_ORDER_ID" 
+order_status_response = standard_phonepe_client.get_order_status(merchant_order_id=unique_order_id) 
+order_state = order_status_response.state
+You will get the data OrderStatusResponse object.
+
+Order callback handling
+You will receive a callback on the URL that you have configured on dashboard link
+
+It is important to check the validity of the callback received from PhonePe using the validate_callback function.
+
+authorization_header_data = "ef4c914c591698b268db3c64163eafda7209a630f236ebf0eebf045460df723a"
+phonepe_s2s_callback_response_body_string = """{"type": "PG_REFUND_COMPLETED","payload": {}}"""  # callback body as string
+ 
+username_configured = "MERCHANT_USERNAME"
+password_configured = "MERCHANT_PASSWORD"
+ 
+callback_response = standard_phonepe_client.validate_callback(username=username_configured,
+                                                            password=password_configured,
+                                                            callback_header_data=authorization_header_data,
+                                                            callback_response_data=phonepe_s2s_callback_response_body_string)
+order_id = callback_response.order_id
+state = callback_response.state
+validate_callback will throw PhonePeException if the callback is invalid.
+
+
+Possible Callback Values: 
+CHECKOUT_ORDER_COMPLETED,
+CHECKOUT_ORDER_FAILED, 
+CHECKOUT_TRANSACTION_ATTEMPT_FAILED

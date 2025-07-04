@@ -1,0 +1,9 @@
+<h1>Special Occasion Offers</h1>
+<p>Dear {{ user.first_name }},</p>
+<p>Celebrate your special day with these exclusive offers:</p>
+<ul>
+    {% for offer in offers %}
+    <li><a href="{{ offer.link }}">{{ offer.name }}</a></li>
+    {% endfor %}
+</ul>
+<p>Best regards,<br>Team</p>

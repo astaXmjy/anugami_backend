@@ -1,0 +1,98 @@
+Python SDK – Exception Handling
+This document outlines the exception handling for the exceptions that might incur.
+
+PhonePeException
+Exception raised for errors related to PhonePe APIs.
+
+Attribute	Description
+code	The status code of the response.
+message	The error message.
+http_status_code	The http status received from the API
+data	The details of the error that happened while calling phonepe.
+Example :
+
+from phonepe.sdk.pg.common.exceptions import PhonePeException
+ 
+from phonepe.sdk.pg.payments.v2.standard_checkout_client import StandardCheckoutClient
+from phonepe.sdk.pg.env import Env
+ 
+client_id = "<YOUR_CLIENT_ID>"
+client_secret = "<YOUR_CLIENT_SECRET>"
+client_version = 1  # Insert your client version here
+env = Env.SANDBOX  # Change to Env.PRODUCTION when you go live
+ 
+standard_phonepe_client = StandardCheckoutClient.get_instance(client_id=client_id,
+                                                              client_secret=client_secret,
+                                                              client_version=client_version,
+                                                              env=env)
+try:
+    callback_valid = standard_phonepe_client.validate_callback(username="username_configured",
+                                                               password="password_configured",
+                                                               callback_header_data="ef4c914c591698b268db3c64163eafda7209a630f236ebf0eebf045460df723a",
+                                                               callback_response_data="phonepe_s2s_callback_response_body_string")
+except PhonePeException as exception:
+    print(exception.code)
+    print(exception.message)
+Response Models for Reference
+Below data can be used when you need to access the response details :
+
+InstrumentCombo :
+
+Property	Type	Description
+instrument	PaymentInstrumentV2	Instrument used for the payment
+rails	PaymentRail	Rail used for the payment
+amount	long	Amount transferred using the above instrument and rail
+PaymentRail :
+
+Different types of rail which is used to initiate payment. The object is :
+
+UPI RAIL
+
+Property	Type
+type	PaymentRailType
+utr	str
+upi_transaction_id	str
+vpa	str
+PG RAIL
+
+Property	Type
+type	PaymentRailType
+transaction_id	str
+authorization_code	str
+service_transaction_id	str
+PaymentInstrumentV2 :
+
+Different types of instruments which is used to initiate a payment
+
+ACCOUNT
+
+Property	Type
+type	PaymentInstrumentType
+ifsc	str
+account_type	str
+masked_account_number	str
+account_holder_name	str
+CREDIT_CARD
+
+Property	Type
+type	PaymentInstrumentType
+bank_transaction_id	str
+bank_id	str
+arn	str
+brn	str
+DEBIT_CARD
+
+Property	Type
+type	PaymentInstrumentType
+bank_transaction_id	str
+bank_id	str
+arn	str
+brn	str
+NET_BANKING
+
+Property	Type
+type	PaymentInstrumentType
+bank_transaction_id	str
+bank_id	str
+arn	str
+brn	str

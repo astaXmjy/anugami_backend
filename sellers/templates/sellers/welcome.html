@@ -1,0 +1,36 @@
+<!-- templates/sellers/welcome.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Welcome to Anugami!</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h2 style="color: #2563eb; margin-bottom: 20px;">Welcome to Our Marketplace!</h2>
+        
+        <p>Hello{% if name %} {{ name }}{% endif %},</p>
+        
+        <p>Thank you for joining our marketplace as a vendor. We're excited to have you on board!</p>
+        
+        <p>Here's what happens next:</p>
+        <ul style="margin: 20px 0; padding-left: 20px;">
+            <li>Complete your profile setup</li>
+            <li>Add your products or services</li>
+            <li>Start selling to customers</li>
+        </ul>
+        
+        <div style="margin: 30px 0; text-align: center;">
+            <a href="{{ dashboard_url }}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                Go to Dashboard
+            </a>
+        </div>
+        
+        <p>If you need any assistance, our support team is always here to help.</p>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
+            <p>This email was sent to {{ email }}</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,61 @@
+Python SDK – Order Status
+Order Status
+Checks the status of an order.
+
+Parameters
+Parameter Name	Data Type	Mandatory	Description
+merchant_order_id	str	yes	The merchant order ID for which the status is fetched.
+details	boolean	no	true → return all attempt details under paymentDetails list.
+
+false → return only latest attempt details under paymentDetails list
+Example :
+
+from phonepe.sdk.pg.payments.v2.standard_checkout_client import StandardCheckoutClient
+from phonepe.sdk.pg.env import Env
+ 
+client_id = "<YOUR_CLIENT_ID>"
+client_secret = "<YOUR_CLIENT_SECRET>"
+client_version = 1  # Insert your client version here
+env = Env.SANDBOX  # Change to Env.PRODUCTION when you go live
+ 
+standard_phonepe_client = StandardCheckoutClient.get_instance(client_id=client_id,
+                                                              client_secret=client_secret,
+                                                              client_version=client_version,
+                                                              env=env)
+merchant_order_id = "YOUR_MERCHANT_ORDER_ID"
+response = standard_phonepe_client.get_order_status(merchant_order_id, details=False)
+ 
+state = response.state
+Returns :
+The function returns a OrderStatusResponse object with the following properties:
+
+Property	Data Type	Description
+order_id	str	Order ID created by PhonePe.
+state	str	State of order, Expected Values – PENDING,
+FAILED,
+COMPLETED.
+amount	int	Order amount in paisa.
+expire_at	int	order expiry time in epoch.
+metaInfo	MetaInfo	Merchant defined meta info passed at the time of order creation
+payment_details	listPaymentDetial	Contain list of details of each payment attempt made corresponding to this order.
+paymentDetail object has the following properties:
+
+Property	Data Type	Description
+payment_mode	str	Mode of payment. Expected Values – UPI_INTENT,
+UPI_COLLECT,
+UPI_QR, CARD,
+TOKEN,
+NET_BANKING.
+amount	int	Order amount in paisa.
+transaction_id	int	internal transaction id for given payment attempt.
+state	str	Transaction attempt state. Expected Values = 
+PENDING,
+COMPLETED,
+FAILED
+error_code	str	Error code (Only present when transaction state is failed)
+detailed_error_code	str	Detailed Error Code (Only present when transaction state is failed)
+instrument type	str	Type of payment instrument. Expected values = 
+ACCOUNT,
+CREDIT_CARD,
+DEBIT_CARD,
+NET_BANKING

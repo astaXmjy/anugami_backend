@@ -1,0 +1,55 @@
+Python SDK – Standard Checkout
+Standard checkout Pay
+This method is used to initiate a payment via the PhonePe PG.
+
+Parameters
+Parameter Name	Data Type	Mandatory	Description
+pay_request	StandardCheckoutPayRequest	yes	The request built using using StandardCheckoutPayRequest builder.
+Standard checkout Pay Request Builder
+Builds Pay Page request.
+
+Attributes
+Attribute	Data Type	Mandatory	Description	Constraints
+merchant_order_id	str	yes	The unique order ID assigned by the merchant.	merchantOrderId length should be less than 63 characters<br/> 2. No Special characters allowed except underscore “_” and hyphen “-“
+amount	int	yes	Order amount in paisa.	Minimum value = 1 i.e. 100 paise
+redirect_url	str	No	URL where user will be redirected after success/failed payment.	
+Use the above information as shown in the example below
+
+Example :
+
+from uuid import uuid4
+from phonepe.sdk.pg.payments.v2.standard_checkout_client import StandardCheckoutClient
+from phonepe.sdk.pg.payments.v2.models.request.standard_checkout_pay_request import StandardCheckoutPayRequest
+from phonepe.sdk.pg.env import Env
+ 
+client_id = "<YOUR_CLIENT_ID>"
+client_secret = "<YOUR_CLIENT_SECRET>"
+client_version = 1  # Insert your client version here
+env = Env.SANDBOX  # Change to Env.PRODUCTION when you go live
+ 
+standard_phonepe_client = StandardCheckoutClient.get_instance(client_id=client_id,
+                                                              client_secret=client_secret,
+                                                              client_version=client_version,
+                                                              env=env)
+ 
+unique_order_id = str(uuid4())
+ui_redirect_url = "https://www.merchant.com/redirect"
+amount = 100
+standard_pay_request = StandardCheckoutPayRequest.build_request(merchant_order_id=unique_order_id,
+                                                                amount=amount,
+                                                                redirect_url=ui_redirect_url)
+standard_pay_response = standard_phonepe_client.pay(standard_pay_request)
+checkout_page_url = standard_pay_response.redirect_url
+Returns :
+
+The function returns a StandardCheckoutPayResponse object with the following properties:
+
+StandardCheckoutPayResponse properties
+
+Here is the response property table for the given model:
+
+Attribute	Data Type	Description
+state	str	State of the order created, Expected value is PENDING
+redirect_url	str	The url for the PG Standard Checkout (merchant is supposed to redirect user to complete payment)
+order_id	str	PG generated internal order id
+expire_at	str	Order expiry date in epoch
