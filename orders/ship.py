@@ -1,4 +1,4 @@
-# services/shiprocket.py
+# orders/ship.py
 import requests
 import json
 import logging
@@ -9,140 +9,474 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
-class ShiprocketService:
+class ShipmojoService:
     """
-    Service class for Shiprocket integration
+    Service class for Shipmojo integration
     """
 
-    BASE_URL = "https://apiv2.shiprocket.in/v1/external"
+    BASE_URL = "https://shipping-api.com/app/api/v1"
 
     def __init__(self):
-        self.token = self._get_token()
+        self.public_key = getattr(settings, 'SHIPMOJO_PUBLIC_KEY', None)
+        self.private_key = getattr(settings, 'SHIPMOJO_PRIVATE_KEY', None)
+        
+        if not self.public_key or not self.private_key:
+            logger.error("Shipmojo API keys not found in settings")
 
-    def _get_token(self):
+    def _get_headers(self):
         """
-        Authenticate with Shiprocket API
+        Get headers for Shipmojo API requests
+        """
+        return {
+            'public-key': self.public_key,
+            'private-key': self.private_key,
+            'Content-Type': 'application/json'
+        }
+
+    def login(self, username, password):
+        """
+        Login to Shipmojo API to get keys
         """
         try:
             response = requests.post(
-                f"{self.BASE_URL}/auth/login",
+                f"{self.BASE_URL}/login",
                 json={
-                    "email": settings.SHIPROCKET_EMAIL,
-                    "password": settings.SHIPROCKET_PASSWORD,
+                    "username": username,
+                    "password": password,
                 },
             )
 
-            print("zzxx")
-
             if response.status_code == 200:
-                return response.json().get("token")
-
-            logger.error(
-                f"Failed to get Shiprocket token. Status: {response.status_code}, Response: {response.text}"
-            )
+                data = response.json()
+                if data.get('result') == '1':
+                    user_data = data.get('data', [{}])[0]
+                    return {
+                        'public_key': user_data.get('public_key'),
+                        'private_key': user_data.get('private_key'),
+                        'name': user_data.get('name')
+                    }
+            
+            logger.error(f"Shipmojo login failed: {response.text}")
             return None
 
         except Exception as e:
-            logger.error(f"Error getting Shiprocket token: {str(e)}")
+            logger.error(f"Error during Shipmojo login: {str(e)}")
             return None
 
-    def check_serviceability(self, pickup_pincode, delivery_pincode, weight, cod=False):
+    def check_api_info(self):
+        """
+        Check if API is operational
+        """
+        try:
+            response = requests.get(f"{self.BASE_URL}/info")
+            
+            if response.status_code == 200:
+                return response.json()
+            
+            logger.error(f"API info check failed: {response.text}")
+            return {"error": "API not available"}
+
+        except Exception as e:
+            logger.error(f"Error checking API info: {str(e)}")
+            return {"error": str(e)}
+
+    def check_serviceability(self, pickup_pincode, delivery_pincode):
         """
         Check courier serviceability between two pincodes
         """
-        if not self.token:
-            logger.error("No Shiprocket token available")
-            return {"error": "Authentication failed"}
-
-        headers = {"Authorization": f"Bearer {self.token}"}
-        params = {
-            "pickup_postcode": pickup_pincode,
-            "delivery_postcode": delivery_pincode,
-            "weight": weight,
-            "cod": 1 if cod else 0,
-        }
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
 
         try:
-            response = requests.get(
-                f"{self.BASE_URL}/courier/serviceability/",
-                headers=headers,
-                params=params,
+            response = requests.post(
+                f"{self.BASE_URL}/pincode-serviceability",
+                headers=self._get_headers(),
+                json={
+                    "pickup_pincode": int(pickup_pincode),
+                    "delivery_pincode": int(delivery_pincode)
+                }
             )
 
             if response.status_code == 200:
                 return response.json()
 
-            logger.error(
-                f"Serviceability check failed. Status: {response.status_code}, Response: {response.text}"
-            )
-            return {"error": f"Failed with status {response.status_code}"}
+            logger.error(f"Serviceability check failed: {response.text}")
+            return {"error": "Serviceability check failed"}
 
         except Exception as e:
             logger.error(f"Error checking serviceability: {str(e)}")
             return {"error": str(e)}
 
-    def generate_awb(self, shipment_id):
+    def calculate_shipping_rates(self, pickup_pincode, delivery_pincode, payment_type, 
+                               order_amount, weight, dimensions, shipment_type="FORWARD"):
         """
-        Generate AWB number for a shipment
+        Calculate shipping rates
         """
-        if not self.token:
-            return {"error": "Authentication failed"}
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
 
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
+        try:
+            payload = {
+                "order_id": "",
+                "pickup_pincode": int(pickup_pincode),
+                "delivery_pincode": int(delivery_pincode),
+                "payment_type": payment_type.upper(),
+                "shipment_type": shipment_type,
+                "order_amount": int(order_amount),
+                "type_of_package": "SPS",
+                "rov_type": "ROV_OWNER",
+                "cod_amount": "",
+                "weight": int(weight),
+                "dimensions": dimensions
+            }
+
+            response = requests.post(
+                f"{self.BASE_URL}/rate-calculator",
+                headers=self._get_headers(),
+                json=payload
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Rate calculation failed: {response.text}")
+            return {"error": "Rate calculation failed"}
+
+        except Exception as e:
+            logger.error(f"Error calculating rates: {str(e)}")
+            return {"error": str(e)}
+
+    def create_warehouse(self, warehouse_data):
+        """
+        Create warehouse in Shipmojo
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
 
         try:
             response = requests.post(
-                f"{self.BASE_URL}/courier/assign/awb",
-                headers=headers,
-                json={"shipment_id": shipment_id},
+                f"{self.BASE_URL}/create-warehouse",
+                headers=self._get_headers(),
+                json=warehouse_data
             )
 
-            awb_response = response.json()
+            if response.status_code == 200:
+                return response.json()
 
-            # Handle different response structures
-            if awb_response.get("awb_assign_status") == 1:
-                awb_data = awb_response["response"]["data"]
-                return {
-                    "awb_code": awb_data.get("awb_code", ""),
-                    "courier_company_id": awb_data.get("courier_company_id", ""),
-                    "courier_name": awb_data.get("courier_name", ""),
-                }
-            elif "data" in awb_response:
-                # Fallback for other potential response structures
-                return {
-                    "awb_code": awb_response["data"].get("awb_code", ""),
-                    "courier_company_id": awb_response["data"].get(
-                        "courier_company_id", ""
-                    ),
-                    "courier_name": awb_response["data"].get("courier_name", ""),
-                }
-            else:
-                # If no AWB details found, return empty strings
-                return {
-                    "awb_code": "",
-                    "courier_company_id": "",
-                    "courier_name": "",
-                }
+            logger.error(f"Warehouse creation failed: {response.text}")
+            return {"error": "Warehouse creation failed"}
 
         except Exception as e:
-            logger.error(f"Error generating AWB: {str(e)}")
-            return {
-                "awb_code": "",
-                "courier_company_id": "",
-                "courier_name": "",
-            }
+            logger.error(f"Error creating warehouse: {str(e)}")
+            return {"error": str(e)}
+
+    def get_warehouses(self):
+        """
+        Get all warehouses
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/get-warehouses",
+                headers=self._get_headers()
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Get warehouses failed: {response.text}")
+            return {"error": "Failed to fetch warehouses"}
+
+        except Exception as e:
+            logger.error(f"Error getting warehouses: {str(e)}")
+            return {"error": str(e)}
+
+    def push_order(self, order_data):
+        """
+        Push order to Shipmojo
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/push-order",
+                headers=self._get_headers(),
+                json=order_data
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('result') == '1':
+                    return data
+                else:
+                    logger.error(f"Order push failed: {data.get('message', 'Unknown error')}")
+                    return {"error": data.get('message', 'Order push failed')}
+
+            logger.error(f"Order push failed with status {response.status_code}: {response.text}")
+            return {"error": "Order push failed"}
+
+        except Exception as e:
+            logger.error(f"Error pushing order: {str(e)}")
+            return {"error": str(e)}
+
+    def assign_courier(self, order_id, courier_id):
+        """
+        Assign courier to order
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/assign-courier",
+                headers=self._get_headers(),
+                json={
+                    "order_id": str(order_id),
+                    "courier_id": int(courier_id)
+                }
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Courier assignment failed: {response.text}")
+            return {"error": "Courier assignment failed"}
+
+        except Exception as e:
+            logger.error(f"Error assigning courier: {str(e)}")
+            return {"error": str(e)}
+
+    def auto_assign_courier(self, order_id):
+        """
+        Auto assign courier to order
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/auto-assign-order",
+                headers=self._get_headers(),
+                json={"order_id": str(order_id)}
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Auto courier assignment failed: {response.text}")
+            return {"error": "Auto courier assignment failed"}
+
+        except Exception as e:
+            logger.error(f"Error auto assigning courier: {str(e)}")
+            return {"error": str(e)}
+
+    def schedule_pickup(self, order_id):
+        """
+        Schedule pickup for order
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/schedule-pickup",
+                headers=self._get_headers(),
+                json={"order_id": str(order_id)}
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Pickup scheduling failed: {response.text}")
+            return {"error": "Pickup scheduling failed"}
+
+        except Exception as e:
+            logger.error(f"Error scheduling pickup: {str(e)}")
+            return {"error": str(e)}
+
+    def track_order(self, awb_number):
+        """
+        Track order using AWB number
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/track-order",
+                headers=self._get_headers(),
+                params={"awb_number": str(awb_number)}
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Order tracking failed: {response.text}")
+            return {"error": "Order tracking failed"}
+
+        except Exception as e:
+            logger.error(f"Error tracking order: {str(e)}")
+            return {"error": str(e)}
+
+    def get_order_label(self, awb_number):
+        """
+        Get shipping label for order
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/get-order-label/{awb_number}",
+                headers=self._get_headers()
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Label generation failed: {response.text}")
+            return {"error": "Label generation failed"}
+
+        except Exception as e:
+            logger.error(f"Error getting label: {str(e)}")
+            return {"error": str(e)}
+
+    def cancel_order(self, order_id, awb_number):
+        """
+        Cancel order
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/cancel-order",
+                headers=self._get_headers(),
+                json={
+                    "order_id": str(order_id),
+                    "awb_number": int(awb_number)
+                }
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Order cancellation failed: {response.text}")
+            return {"error": "Order cancellation failed"}
+
+        except Exception as e:
+            logger.error(f"Error cancelling order: {str(e)}")
+            return {"error": str(e)}
+
+    def get_return_reasons(self):
+        """
+        Get return reasons
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/get-return-reason",
+                headers=self._get_headers()
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Get return reasons failed: {response.text}")
+            return {"error": "Failed to get return reasons"}
+
+        except Exception as e:
+            logger.error(f"Error getting return reasons: {str(e)}")
+            return {"error": str(e)}
+
+    def push_return_order(self, return_order_data):
+        """
+        Push return order
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/push-return-order",
+                headers=self._get_headers(),
+                json=return_order_data
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Return order push failed: {response.text}")
+            return {"error": "Return order push failed"}
+
+        except Exception as e:
+            logger.error(f"Error pushing return order: {str(e)}")
+            return {"error": str(e)}
+
+    def get_order_detail(self, order_id):
+        """
+        Get order details
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/get-order-detail/{order_id}",
+                headers=self._get_headers()
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Get order detail failed: {response.text}")
+            return {"error": "Failed to get order details"}
+
+        except Exception as e:
+            logger.error(f"Error getting order details: {str(e)}")
+            return {"error": str(e)}
+
+    def update_warehouse(self, order_id, warehouse_id):
+        """
+        Update warehouse for order
+        """
+        if not self.public_key or not self.private_key:
+            return {"error": "Authentication credentials not available"}
+
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/order/update-warehouse",
+                headers=self._get_headers(),
+                json={
+                    "order_id": str(order_id),
+                    "warehouse_id": int(warehouse_id)
+                }
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(f"Warehouse update failed: {response.text}")
+            return {"error": "Warehouse update failed"}
+
+        except Exception as e:
+            logger.error(f"Error updating warehouse: {str(e)}")
+            return {"error": str(e)}
 
     def create_order(self, order, pickup_address):
         """
-        Create a new order in Shiprocket
+        Create a complete order workflow:
+        1. Push order
+        2. Auto-assign courier (if enabled) or manual assignment
+        3. Schedule pickup
         """
-        if not self.token:
-            return {"error": "Authentication failed"}
-
         # Get shipping address from order
+        print("inside this for creating shipping")
         shipping_address = None
         for address in order.orderaddress_set.all():
             if address.address_type == "shipping":
@@ -152,273 +486,68 @@ class ShiprocketService:
         if not shipping_address:
             return {"error": "No shipping address found"}
 
-        # Get order items
-        order_items = []
+        # Get order items and build product details
+        product_details = []
         for item in order.items.all():
-            order_items.append(
-                {
-                    "name": item.name,
-                    "sku": item.sku or f"SKU-{item.id}",
-                    "units": item.quantity,
-                    "selling_price": float(item.final_price / item.quantity),
-                    "discount": float(item.discount_amount),
-                    "tax": float(item.tax_amount or 0),
-                }
-            )
+            product_details.append({
+                "name": item.name,
+                "sku_number": item.sku or f"SKU-{item.id}",
+                "quantity": item.quantity,
+                "discount": "",
+                "hsn": "#123",  # You might want to get this from product model
+                "unit_price": float(item.final_price / item.quantity),
+                "product_category": "Other"  # You might want to get this from product model
+            })
 
-        # Calculate expected delivery date (7 days from now as default)
-        expected_delivery = timezone.now() + timedelta(days=14)
-
-        # Determine if COD based on payment method
+        # Determine payment type
         is_cod = order.payment.method == "COD" if hasattr(order, "payment") else False
+        payment_type = "COD" if is_cod else "PREPAID"
+        cod_amount = str(float(order.total_amount)) if is_cod else ""
 
-        # Create payload
-        payload = {
+        # Calculate package dimensions based on items
+        total_weight = sum(item.quantity * 200 for item in order.items.all())  # 200g per item default
+        
+        # Prepare order data for Shipmojo
+        order_data = {
             "order_id": order.order_number,
-            "order_date": order.created_at.strftime("%Y-%m-%d %H:%M"),
-            "pickup_location": pickup_address.get("name", "Primary"),
-            "channel_id": "",
-            "comment": f"Order {order.order_number}",
-            "billing_customer_name": shipping_address.full_name,
-            "billing_last_name": "",
-            "billing_address": shipping_address.street,
-            "billing_address_2": shipping_address.landmark,
-            "billing_city": shipping_address.city,
-            "billing_pincode": shipping_address.pincode,
-            "billing_state": shipping_address.state,
-            "billing_country": shipping_address.country,
-            "billing_email": shipping_address.email,
-            "billing_phone": str(shipping_address.phone)
-            .replace("+91", "")
-            .replace("-", "")
-            .replace(" ", "")[-10:],
-            "shipping_is_billing": True,
-            "shipping_customer_name": shipping_address.full_name,
-            "shipping_address": shipping_address.street,
-            "shipping_address_2": shipping_address.landmark,
-            "shipping_city": shipping_address.city,
-            "shipping_pincode": shipping_address.pincode,
-            "shipping_state": shipping_address.state,
-            "shipping_country": shipping_address.country,
-            "shipping_email": shipping_address.email,
-            "shipping_phone": str(shipping_address.phone)
-            .replace("+91", "")
-            .replace("-", "")
-            .replace(" ", "")[-10:],
-            "order_items": order_items,
-            "payment_method": "COD" if is_cod else "Prepaid",
-            "shipping_charges": (
-                float(order.shipping.shipping_cost)
-                if hasattr(order, "shipping") and order.shipping.shipping_cost
-                else 0
-            ),
-            "giftwrap_charges": 0,
-            "transaction_charges": 0,
-            "total_discount": sum(
-                float(item.discount_amount) for item in order.items.all()
-            ),
-            "sub_total": float(order.total_amount),
-            "length": order.shipping.length if hasattr(order, "shipping") else 10,
-            "breadth": order.shipping.width if hasattr(order, "shipping") else 10,
-            "height": order.shipping.height if hasattr(order, "shipping") else 10,
-            "weight": order.shipping.weight if hasattr(order, "shipping") else 0.5,
+            "order_date": order.created_at.strftime("%Y-%m-%d"),
+            "order_type": "ESSENTIALS",
+            "consignee_name": shipping_address.full_name,
+            "consignee_phone": int(shipping_address.phone.replace("+", "").replace("-", "").replace(" ", "")),
+            "consignee_alternate_phone": int(shipping_address.phone.replace("+", "").replace("-", "").replace(" ", "")),
+            "consignee_email": shipping_address.email,
+            "consignee_address_line_one": shipping_address.street,
+            "consignee_address_line_two": shipping_address.area,
+            "consignee_pin_code": int(shipping_address.pincode),
+            "consignee_city": shipping_address.city,
+            "consignee_state": shipping_address.state,
+            "product_detail": product_details,
+            "payment_type": payment_type,
+            "cod_amount": cod_amount,
+            "weight": max(200, total_weight),  # Minimum 200g
+            "length": 20,
+            "width": 15,
+            "height": 10,
+            "warehouse_id": "",  # Will be set based on seller
+            "gst_ewaybill_number": "",
+            "gstin_number": ""
         }
 
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
+        # Step 1: Push order to Shipmojo
+        logger.info(f"Pushing order {order.order_number} to Shipmojo")
+        push_response = self.push_order(order_data)
+        
+        if "error" in push_response:
+            return push_response
+
+        # Return the push response - AWB will be generated later when courier is assigned
+        return {
+            "order_id": push_response.get("data", {}).get("order_id"),
+            "reference_id": push_response.get("data", {}).get("reference_id"),
+            "message": "Order pushed to Shipmojo successfully",
+            "status": "Order Created"
         }
 
-        try:
-            # Create Order
-            order_response = requests.post(
-                f"{self.BASE_URL}/orders/create/adhoc", headers=headers, json=payload
-            )
-            order_data = order_response.json()
 
-            # Check if order creation was successful
-            if order_response.status_code != 200 or "order_id" not in order_data:
-                logger.error(f"Failed to create order: {order_data}")
-                return {"error": "Failed to create order", "details": order_data}
-
-            # Extract shipment_id from order creation response
-            shipment_id = order_data.get("shipment_id")
-
-            # Generate AWB for the shipment
-            awb_response = self.generate_awb(shipment_id)
-
-            # Combine responses in the requested format
-            combined_response = {
-                "order_id": order_data.get("order_id"),
-                "channel_order_id": order_data.get("channel_order_id", ""),
-                "shipment_id": shipment_id,
-                "status": order_data.get("status", "NEW"),
-                "status_code": order_data.get("status_code", 1),
-                "onboarding_completed_now": order_data.get(
-                    "onboarding_completed_now", 0
-                ),
-                "new_channel": order_data.get("new_channel", False),
-                "packaging_box_error": order_data.get("packaging_box_error", ""),
-                # Add AWB details, defaulting to empty strings if not available
-                "awb_code": awb_response.get("awb_code", ""),
-                "courier_company_id": awb_response.get("courier_company_id", ""),
-                "courier_name": awb_response.get("courier_name", ""),
-                # Optional: Include full response details for debugging
-                "_full_order_response": order_data,
-                "_full_awb_response": awb_response,
-            }
-
-            return combined_response
-        except Exception as e:
-            logger.error(f"Error creating Shiprocket order: {str(e)}")
-            return {"error": str(e)}
-
-    def get_tracking_details(self, shipment_id=None, order_id=None, awb=None):
-        """
-        Get tracking details for a shipment
-        """
-        if not self.token:
-            return {"error": "Authentication failed"}
-
-        headers = {"Authorization": f"Bearer {self.token}"}
-
-        url = f"{self.BASE_URL}/courier/track"
-        if shipment_id:
-            url = f"{url}/shipment/{shipment_id}"
-        elif order_id:
-            url = f"{url}/order/{order_id}"
-        elif awb:
-            url = f"{url}/awb/{awb}"
-        else:
-            return {"error": "No tracking identifier provided"}
-
-        try:
-            response = requests.get(url, headers=headers)
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error getting tracking details: {str(e)}")
-            return {"error": str(e)}
-
-    def generate_manifest(self, shipment_ids):
-        """
-        Generate manifest for shipments
-        """
-        if not self.token:
-            return {"error": "Authentication failed"}
-
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = requests.post(
-                f"{self.BASE_URL}/manifests/generate",
-                headers=headers,
-                json={"shipment_id": shipment_ids},
-            )
-
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error generating manifest: {str(e)}")
-            return {"error": str(e)}
-
-    def generate_label(self, shipment_id):
-        """
-        Generate label for a shipment
-        """
-        if not self.token:
-            return {"error": "Authentication failed"}
-
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = requests.post(
-                f"{self.BASE_URL}/courier/generate/label",
-                headers=headers,
-                json={"shipment_id": [shipment_id]},
-            )
-
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error generating label: {str(e)}")
-            return {"error": str(e)}
-
-    def cancel_shipment(self, shipment_id):
-        """
-        Cancel a shipment
-        """
-        if not self.token:
-            return {"error": "Authentication failed"}
-
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = requests.post(
-                f"{self.BASE_URL}/orders/cancel/shipment/request",
-                headers=headers,
-                json={"shipment_id": shipment_id},
-            )
-
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error cancelling shipment: {str(e)}")
-            return {"error": str(e)}
-
-    def get_all_pickup_locations(self):
-        """
-        Get all pickup locations
-        """
-        if not self.token:
-            return {"error": "Authentication failed"}
-
-        headers = {"Authorization": f"Bearer {self.token}"}
-
-        try:
-            response = requests.get(
-                f"{self.BASE_URL}/settings/company/pickup", headers=headers
-            )
-
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error getting pickup locations: {str(e)}")
-            return {"error": str(e)}
-
-    def request_pickup(self, shipment_id, pickup_date):
-        """
-        Request pickup for a shipment
-        """
-        if not self.token:
-            return {"error": "Authentication failed"}
-
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response = requests.post(
-                f"{self.BASE_URL}/courier/generate/pickup",
-                headers=headers,
-                json={
-                    "shipment_id": [shipment_id],
-                    "pickup_date": pickup_date.strftime("%Y-%m-%d"),
-                },
-            )
-
-            return response.json()
-
-        except Exception as e:
-            logger.error(f"Error requesting pickup: {str(e)}")
-            return {"error": str(e)}
+# Backward compatibility - keep old class name as alias
+ShiprocketService = ShipmojoService

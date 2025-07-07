@@ -351,8 +351,10 @@ PHONEPE_REFUND_CALLBACK_URL = (
     "https://b6e2-106-219-87-60.ngrok-free.app/api/v1/orders/webhooks/phonepe/refund/"
 )
 
-SHIPROCKET_EMAIL = config("SHIPROCKET_EMAIL")
-SHIPROCKET_PASSWORD = config("SHIPROCKET_PASSWORD")
+
+SHIPMOJO_PUBLIC_KEY=config("SHIPMOJO_PUBLIC_KEY")
+SHIPMOJO_PRIVATE_KEY=config("SHIPMOJO_PRIVATE_KEY")
+
 
 # Security Settings (Production)
 if not DEBUG:

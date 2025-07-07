@@ -41,7 +41,7 @@ from .serializers import (
     OrderUpdateSerializer,
     OrderStatusUpdateSerializer,
 )
-from .ship import ShiprocketService
+from .ship import ShipmojoService
 from .phpe import PhonePeService
 from sellers.models import ShippingLocation
 from .seller_grouped import create_orders_from_cart_items
@@ -56,7 +56,6 @@ from django.views import View
 from orders.models import Order, PaymentDetails
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -326,125 +325,22 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    @action(detail=True, methods=["GET"])
-    def track(self, request, pk=None):
-        order = self.get_object()
-
-        # Check if order has shipping details
-        if hasattr(order, "shipping"):
-            shipping = order.shipping
-
-            # If it's a Shiprocket order with a shipment_id
-            if shipping.provider == "shiprocket" and shipping.shipment_id:
-                # Get tracking details from Shiprocket API
-                shiprocket_service = ShiprocketService()
-                tracking_details = shiprocket_service.get_tracking_details(
-                    shipment_id=shipping.shipment_id
-                )
-
-                if "error" not in tracking_details:
-                    # Update status if needed
-                    if tracking_details.get("tracking_data") and tracking_details[
-                        "tracking_data"
-                    ].get("shipment_track"):
-                        current_status = tracking_details["tracking_data"][
-                            "shipment_track"
-                        ][0].get("current_status")
-                        if current_status and current_status != shipping.status:
-                            shipping.status = current_status
-                            shipping.save()
-
-                            # Store tracking history
-                            if (
-                                "tracking_data" in tracking_details
-                                and "shipment_track_activities"
-                                in tracking_details["tracking_data"]
-                            ):
-                                activities = tracking_details["tracking_data"][
-                                    "shipment_track_activities"
-                                ]
-                                for activity in activities:
-                                    ShipmentStatusUpdate.objects.get_or_create(
-                                        shipping=shipping,
-                                        status=activity.get("status", ""),
-                                        status_date=timezone.datetime.strptime(
-                                            activity.get("date", ""),
-                                            "%Y-%m-%d %H:%M:%S",
-                                        ),
-                                        location=activity.get("location", ""),
-                                        activity=activity.get("activity", ""),
-                                        additional_info=activity,
-                                    )
-
-                    # Prepare response data
-                    status_updates = ShipmentStatusUpdate.objects.filter(
-                        shipping=shipping
-                    )
-                    status_history = []
-                    for update in status_updates:
-                        status_history.append(
-                            {
-                                "status": update.status,
-                                "date": update.status_date,
-                                "location": update.location,
-                                "activity": update.activity,
-                            }
-                        )
-
-                    return Response(
-                        {
-                            "order_number": order.order_number,
-                            "status": order.status,
-                            "shipping_details": {
-                                "provider": "Shiprocket",
-                                "tracking_id": shipping.shipment_id,
-                                "awb_code": shipping.awb_number,
-                                "courier": shipping.courier_name,
-                                "tracking_url": shipping.tracking_url,
-                                "status": shipping.status,
-                                "status_history": status_history,
-                                "pickup_date": shipping.pickup_scheduled,
-                                "label_url": shipping.label_url,
-                                "manifest_url": shipping.manifest_url,
-                            },
-                        }
-                    )
-
-            # Return standard shipping details
-            return Response(
-                {
-                    "order_number": order.order_number,
-                    "status": order.status,
-                    "shipping_details": {
-                        "tracking_id": shipping.tracking_id,
-                        "courier": shipping.courier_name,
-                        "tracking_url": shipping.tracking_url,
-                        "status": shipping.status,
-                        "expected_delivery": shipping.expected_delivery,
-                    },
-                }
-            )
-
-        return Response(
-            {"error": "No shipping information available"},
-            status=status.HTTP_404_NOT_FOUND,
-        )
-
     @action(detail=False, methods=["POST"])
     def checkout(self, request):
         """
         Process checkout using existing cart items in the database
-        and automatically create shipments using seller's shipping location
+        and create orders ready for shipment creation
         """
         shipping_address = request.data.get("shipping_address", {})
         payment_method = request.data.get("payment_method", "COD")
-        clear_cart = request.data.get("clear_cart", False)
+        auto_create_shipments = request.data.get("auto_create_shipments", False)
+        print(shipping_address)
 
         try:
-            # Use your existing utility function to create orders from cart items
-
+            print("orders bnane ke liye aage badh chuke h hum")
             logger.info(f"Starting checkout for user: {request.user}")
             orders = create_orders_from_cart_items(request.user)
+            print("lele bsdk")
 
             if not orders:
                 logger.warning("No orders were created during checkout")
@@ -457,12 +353,14 @@ class OrderViewSet(viewsets.ModelViewSet):
                 f"Created {len(orders)} orders, now adding shipping and payment details"
             )
 
-            # Add shipping address, payment details and initialize shipping for each order
+            # Add shipping address, payment details for each order
+            shipment_results = []
+            shipmojo_service = ShipmojoService()
+
             for order in orders:
                 try:
                     # Add shipping address
                     if shipping_address:
-                        # Get customer
                         customer = request.user.customer
 
                         # Create shipping address
@@ -508,185 +406,141 @@ class OrderViewSet(viewsets.ModelViewSet):
                     )
 
                     # Calculate package dimensions based on items
-                    # This is a simplified calculation
                     items = order.items.all()
                     total_weight = sum(
-                        item.quantity * 0.5 for item in items
-                    )  # Assuming 0.5 kg per item
+                        item.quantity * 0.2 for item in items
+                    )  # 0.2 kg per item
 
                     # Create shipping details record
                     shipping = ShippingDetails.objects.create(
                         order=order,
-                        provider="shiprocket",
-                        weight=max(0.5, total_weight),
+                        provider="shipmojo",
+                        weight=max(0.2, total_weight),
                         length=20,  # Default dimensions in cm
                         width=15,
                         height=10,
-                        pickup_location=order.seller.business_name,  # Use seller's business name
+                        pickup_location=order.seller.business_name,
+                        seller=order.seller,  # Link to seller
                     )
 
                     logger.info(
                         f"Added shipping and payment details to order {order.id}"
                     )
 
-                except Exception as e:
-                    logger.error(f"Error adding details to order {order.id}: {str(e)}")
+                    # Auto-create shipment if requested
+                    if auto_create_shipments:
+                        seller = order.seller
+                        shipping_location = ShippingLocation.objects.filter(
+                            seller=seller
+                        ).first()
 
-            # Now create shipments for each order
-            logger.info("Starting shipment creation for all orders")
-            shipment_results = []
+                        if not shipping_location:
+                            error_msg = f"No shipping location found for seller {seller.business_name}"
+                            logger.error(error_msg)
+                            shipment_results.append(
+                                {
+                                    "order_id": order.id,
+                                    "order_number": order.order_number,
+                                    "success": False,
+                                    "seller": seller.business_name,
+                                    "error": error_msg,
+                                }
+                            )
+                            continue
 
-            shiprocket_service = ShiprocketService()
+                        # Create pickup address from seller's shipping location
+                        pickup_address = {
+                            "name": "Primary",
+                            "address": shipping_location.address,
+                            "city": shipping_location.city,
+                            "state": shipping_location.state,
+                            "pincode": shipping_location.pincode,
+                            "phone": shipping_location.phone_number,
+                        }
 
-            for order in orders:
-                try:
-                    # Get seller
-                    seller = order.seller
-                    logger.info(
-                        f"Creating shipment for order {order.id} from seller {seller.id}"
-                    )
-
-                    shipping_location = ShippingLocation.objects.filter(
-                        seller=seller
-                    ).first()
-
-                    if not shipping_location:
-                        error_msg = f"No shipping location found for seller {seller.business_name}"
-                        logger.error(error_msg)
-
-                        shipment_results.append(
-                            {
-                                "order_id": order.id,
-                                "order_number": order.order_number,
-                                "success": False,
-                                "seller": seller.business_name,
-                                "error": error_msg,
-                            }
-                        )
-                        continue
-
-                    # Create pickup address from seller's shipping location
-                    pickup_address = {
-                        "name": "Primary",
-                        "address": shipping_location.address,
-                        "city": shipping_location.city,
-                        "state": shipping_location.state,
-                        "pincode": shipping_location.pincode,
-                        "phone": shipping_location.phone_number,
-                    }
-
-                    logger.info(f"Using pickup address: {pickup_address}")
-
-                    # Call the Shiprocket service to create shipment
-                    shipment_response = shiprocket_service.create_order(
-                        order, pickup_address
-                    )
-
-                    if "error" not in shipment_response:
-                        # Update shipping details with shipment info
-                        shipping = order.shipping
-
-                        # Update with shipment details from response
-                        if "order_id" in shipment_response:
-                            shipping.shiprocket_order_id = shipment_response["order_id"]
-                        if "shipment_id" in shipment_response:
-                            shipping.shipment_id = shipment_response["shipment_id"]
-                        if "awb_code" in shipment_response:
-                            shipping.awb_number = shipment_response["awb_code"]
-                        if "courier_name" in shipment_response:
-                            shipping.courier_name = shipment_response["courier_name"]
-                        if "courier_company_id" in shipment_response:
-                            shipping.courier_company_id = shipment_response[
-                                "courier_company_id"
-                            ]
-                        if (
-                            "tracking_url" in shipment_response
-                            and shipment_response["tracking_url"]
-                        ):
-                            shipping.tracking_url = shipment_response["tracking_url"]
-
-                        shipping.shiprocket_response = shipment_response
-                        shipping.status = "Order Created in Shiprocket"
-                        shipping.save()
-
-                        # Update order status
-                        order.status = "processing"
-                        order.save()
-
-                        logger.info(
-                            f"Shipment created successfully for order {order.id}"
+                        # Call Shipmojo service to create order
+                        shipment_response = shipmojo_service.create_order(
+                            order, pickup_address
                         )
 
-                        # Add success result
-                        shipment_results.append(
-                            {
-                                "order_id": order.id,
-                                "order_number": order.order_number,
-                                "success": True,
-                                "message": "Shipment created successfully",
-                                "shipment_id": shipping.shipment_id,
-                                "seller": seller.business_name,
-                                "pickup_location": shipping.pickup_location,
-                            }
-                        )
-                    else:
-                        logger.error(
-                            f"Failed to create shipment for order {order.id}: {shipment_response.get('error')}"
-                        )
+                        if "error" not in shipment_response:
+                            # Update shipping details
+                            shipping.shipmojo_order_id = shipment_response.get(
+                                "order_id"
+                            )
+                            shipping.shipmojo_reference_id = shipment_response.get(
+                                "reference_id"
+                            )
+                            shipping.shipmojo_response = shipment_response
+                            shipping.status = "Order Created in Shipmojo"
+                            shipping.save()
 
-                        # Add error result
-                        shipment_results.append(
-                            {
-                                "order_id": order.id,
-                                "order_number": order.order_number,
-                                "success": False,
-                                "seller": seller.business_name,
-                                "error": shipment_response.get(
-                                    "error", "Failed to create shipment"
-                                ),
-                            }
-                        )
+                            # Update order status
+                            order.status = "processing"
+                            order.save()
+
+                            shipment_results.append(
+                                {
+                                    "order_id": order.id,
+                                    "order_number": order.order_number,
+                                    "success": True,
+                                    "message": "Order created in Shipmojo",
+                                    "shipmojo_order_id": shipment_response.get(
+                                        "order_id"
+                                    ),
+                                    "reference_id": shipment_response.get(
+                                        "reference_id"
+                                    ),
+                                    "seller": seller.business_name,
+                                }
+                            )
+                        else:
+                            shipment_results.append(
+                                {
+                                    "order_id": order.id,
+                                    "order_number": order.order_number,
+                                    "success": False,
+                                    "seller": seller.business_name,
+                                    "error": shipment_response["error"],
+                                }
+                            )
 
                 except Exception as e:
-                    logger.error(
-                        f"Error creating shipment for order {order.id}: {str(e)}"
-                    )
+                    logger.error(f"Error processing order {order.id}: {str(e)}")
                     shipment_results.append(
                         {
                             "order_id": order.id,
                             "order_number": order.order_number,
                             "success": False,
-                            "seller": (
-                                order.seller.business_name
-                                if order.seller
-                                else "Unknown"
-                            ),
                             "error": str(e),
                         }
                     )
-            for order in orders:
-                try:
-                    send_order_details_email(order)
-                    logger.info(f"Sent order confirmation email for order {order.id}")
-                except Exception as e:
-                    logger.error(
-                        f"Error sending order confirmation email for order {order.id}: {str(e)}"
-                    )
-            # Return both order and shipment information
-            logger.info("Checkout completed successfully")
-            return Response(
-                {
-                    "success": True,
-                    "message": f"Created {len(orders)} orders with shipments",
-                    "orders": OrderDetailSerializer(orders, many=True).data,
-                    "shipments": shipment_results,
-                },
-                status=status.HTTP_201_CREATED,
-            )
 
-        except ValueError as e:
-            logger.error(f"Checkout validation error: {str(e)}")
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # Prepare response
+            order_data = []
+            for order in orders:
+                order_data.append(
+                    {
+                        "order_id": order.id,
+                        "order_number": order.order_number,
+                        "seller": order.seller.business_name,
+                        "total_amount": float(order.total_amount),
+                        "status": order.status,
+                        "items_count": order.items.count(),
+                    }
+                )
+
+            response_data = {
+                "message": f"Checkout successful! Created {len(orders)} orders.",
+                "orders": order_data,
+                "total_orders": len(orders),
+            }
+
+            if auto_create_shipments:
+                response_data["shipment_results"] = shipment_results
+
+            return Response(response_data, status=status.HTTP_201_CREATED)
+
         except Exception as e:
             logger.error(f"Unexpected checkout error: {str(e)}")
             return Response(
@@ -697,23 +551,32 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"])
     def create_shipment(self, request, pk=None):
         """
-        Create a shipment with Shiprocket for the order
+        Create a shipment with Shipmojo for the order
         """
-
         order = get_object_or_404(Order, id=pk)
 
-        # Check if order already has shipping details
-        if hasattr(order, "shipping") and order.shipping.shipment_id:
+        # Check if order already has shipment created
+        if hasattr(order, "shipping") and order.shipping.shipmojo_order_id:
             return Response(
                 {
                     "error": "Shipment already created for this order",
-                    "shipment_id": order.shipping.shipment_id,
+                    "shipmojo_order_id": order.shipping.shipmojo_order_id,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         seller = order.seller
         shipping_location = ShippingLocation.objects.filter(seller=seller).first()
-        # Get pickup address from request or use default
+
+        if not shipping_location:
+            return Response(
+                {
+                    "error": f"No shipping location found for seller {seller.business_name}"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get pickup address from seller's shipping location
         pickup_address = {
             "name": "Primary",
             "address": shipping_location.address,
@@ -723,249 +586,678 @@ class OrderViewSet(viewsets.ModelViewSet):
             "phone": shipping_location.phone_number,
         }
 
-        # Initialize Shiprocket service
-        shiprocket_service = ShiprocketService()
+        # Initialize Shipmojo service
+        shipmojo_service = ShipmojoService()
 
         # Create shipment
-        shipment_response = shiprocket_service.create_order(order, pickup_address)
+        shipment_response = shipmojo_service.create_order(order, pickup_address)
 
         if "error" not in shipment_response:
             # Create or update shipping details
             shipping, created = ShippingDetails.objects.get_or_create(
                 order=order,
                 defaults={
-                    "provider": "shiprocket",
-                    "weight": request.data.get("weight", 0.5),
-                    "length": request.data.get("length", 10),
-                    "width": request.data.get("width", 10),
+                    "provider": "shipmojo",
+                    "weight": request.data.get("weight", 0.2),
+                    "length": request.data.get("length", 20),
+                    "width": request.data.get("width", 15),
                     "height": request.data.get("height", 10),
-                    "pickup_location": pickup_address.get("name", "Default Location"),
+                    "pickup_location": pickup_address.get("name", "Primary"),
+                    "seller": seller,
                 },
             )
 
             # Update with shipment details
-            if "order_id" in shipment_response:
-                shipping.shiprocket_order_id = shipment_response["order_id"]
-            if "shipment_id" in shipment_response:
-                shipping.shipment_id = shipment_response["shipment_id"]
-            if "awb_code" in shipment_response:
-                shipping.awb_number = shipment_response["awb_code"]
-            if "courier_name" in shipment_response:
-                shipping.courier_name = shipment_response["courier_name"]
-            if "courier_company_id" in shipment_response:
-                shipping.courier_company_id = shipment_response["courier_company_id"]
-            if (
-                "tracking_url" in shipment_response
-                and shipment_response["tracking_url"]
-            ):
-                shipping.tracking_url = shipment_response["tracking_url"]
-
-            shipping.shiprocket_response = shipment_response
-            shipping.status = "Order Created in Shiprocket"
+            shipping.shipmojo_order_id = shipment_response.get("order_id")
+            shipping.shipmojo_reference_id = shipment_response.get("reference_id")
+            shipping.shipmojo_response = shipment_response
+            shipping.status = shipment_response.get("status", "Order Created")
             shipping.save()
 
-            # Update order status if it's still pending
-            if order.status == "pending":
-                order.status = "processing"
-                order.save()
-
-            try:
-                send_order_details_email(order)
-                logger.info(f"Sent order confirmation email for order {order.id}")
-            except Exception as e:
-                logger.error(
-                    f"Error sending order confirmation email for order {order.id}: {str(e)}"
-                )
+            # Update order status
+            order.status = "processing"
+            order.save()
 
             return Response(
                 {
-                    "success": True,
                     "message": "Shipment created successfully",
-                    "shipment_id": shipping.shipment_id,
-                    "order_id": shipping.shiprocket_order_id,
+                    "order_id": order.id,
+                    "order_number": order.order_number,
+                    "shipmojo_order_id": shipment_response.get("order_id"),
+                    "reference_id": shipment_response.get("reference_id"),
+                    "status": shipment_response.get("status"),
+                }
+            )
+        else:
+            return Response(
+                {"error": shipment_response["error"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["POST"])
+    def assign_courier(self, request, pk=None):
+        """
+        Assign courier to order and generate AWB
+        """
+        order = get_object_or_404(Order, id=pk)
+        courier_id = request.data.get("courier_id")
+
+        if not courier_id:
+            return Response(
+                {"error": "courier_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not hasattr(order, "shipping") or not order.shipping.shipmojo_order_id:
+            return Response(
+                {"error": "Order not pushed to Shipmojo yet. Create shipment first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shipmojo_service = ShipmojoService()
+
+        # Assign courier
+        assign_response = shipmojo_service.assign_courier(
+            order.shipping.shipmojo_order_id, courier_id
+        )
+
+        if "error" not in assign_response and assign_response.get("result") == "1":
+            shipping = order.shipping
+            shipping.courier_name = assign_response.get("data", {}).get("courier")
+            shipping.courier_assigned = True
+            shipping.courier_assigned_at = timezone.now()
+            shipping.status = "Courier Assigned"
+            shipping.save()
+
+            return Response(
+                {
+                    "message": "Courier assigned successfully",
+                    "courier": assign_response.get("data", {}).get("courier"),
+                    "order_id": assign_response.get("data", {}).get("order_id"),
+                }
+            )
+        else:
+            return Response(
+                {"error": assign_response.get("error", "Courier assignment failed")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["POST"])
+    def auto_assign_courier(self, request, pk=None):
+        """
+        Auto assign courier to order
+        """
+        order = get_object_or_404(Order, id=pk)
+
+        if not hasattr(order, "shipping") or not order.shipping.shipmojo_order_id:
+            return Response(
+                {"error": "Order not pushed to Shipmojo yet. Create shipment first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shipmojo_service = ShipmojoService()
+
+        # Auto assign courier
+        assign_response = shipmojo_service.auto_assign_courier(
+            order.shipping.shipmojo_order_id
+        )
+
+        if "error" not in assign_response and assign_response.get("result") == "1":
+            shipping = order.shipping
+            data = assign_response.get("data", {})
+            shipping.awb_number = data.get("awb_number")
+            shipping.courier_name = data.get("courier_company")
+            shipping.courier_company_service = data.get("courier_company_service")
+            shipping.courier_assigned = True
+            shipping.courier_assigned_at = timezone.now()
+            shipping.status = "Courier Auto-Assigned"
+            shipping.save()
+
+            return Response(
+                {
+                    "message": "Courier auto-assigned successfully",
+                    "awb_number": data.get("awb_number"),
+                    "courier_company": data.get("courier_company"),
+                    "courier_service": data.get("courier_company_service"),
                 }
             )
         else:
             return Response(
                 {
-                    "success": False,
-                    "error": shipment_response.get(
-                        "error", "Failed to create shipment"
-                    ),
+                    "error": assign_response.get(
+                        "error", "Auto courier assignment failed"
+                    )
                 },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["POST"])
+    def schedule_pickup(self, request, pk=None):
+        """
+        Schedule pickup for order
+        """
+        order = get_object_or_404(Order, id=pk)
+
+        if not hasattr(order, "shipping") or not order.shipping.shipmojo_order_id:
+            return Response(
+                {"error": "Order not pushed to Shipmojo yet. Create shipment first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not order.shipping.courier_assigned:
+            return Response(
+                {"error": "Courier not assigned yet. Assign courier first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shipmojo_service = ShipmojoService()
+
+        # Schedule pickup
+        pickup_response = shipmojo_service.schedule_pickup(
+            order.shipping.shipmojo_order_id
+        )
+
+        if "error" not in pickup_response and pickup_response.get("result") == "1":
+            shipping = order.shipping
+            data = pickup_response.get("data", {})
+
+            shipping.awb_number = data.get("awb_number")
+            shipping.lr_number = data.get("lr_number")
+            shipping.courier_name = data.get("courier")
+            shipping.pickup_scheduled = timezone.now()
+            shipping.pickup_scheduled_manually = True
+            shipping.status = "Pickup Scheduled"
+            shipping.save()
+
+            # Update order status
+            order.status = "shipped"
+            order.save()
+
+            return Response(
+                {
+                    "message": "Pickup scheduled successfully",
+                    "awb_number": data.get("awb_number"),
+                    "lr_number": data.get("lr_number"),
+                    "courier": data.get("courier"),
+                }
+            )
+        else:
+            return Response(
+                {"error": pickup_response.get("error", "Pickup scheduling failed")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["GET"])
+    def get_shipping_rates(self, request, pk=None):
+        """
+        Get shipping rates for order
+        """
+        order = get_object_or_404(Order, id=pk)
+
+        # Get shipping address
+        shipping_address = None
+        for address in order.orderaddress_set.all():
+            if address.address_type == "shipping":
+                shipping_address = address
+                break
+
+        if not shipping_address:
+            return Response(
+                {"error": "No shipping address found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get seller shipping location
+        seller = order.seller
+        shipping_location = ShippingLocation.objects.filter(seller=seller).first()
+
+        if not shipping_location:
+            return Response(
+                {
+                    "error": f"No shipping location found for seller {seller.business_name}"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shipmojo_service = ShipmojoService()
+
+        # Determine payment type
+        is_cod = order.payment.method == "COD" if hasattr(order, "payment") else False
+        payment_type = "COD" if is_cod else "PREPAID"
+
+        # Calculate weight
+        items = order.items.all()
+        total_weight = sum(
+            item.quantity * 200 for item in items
+        )  # 200g per item default
+
+        # Prepare dimensions
+        dimensions = [{"no_of_box": "1", "length": "20", "width": "15", "height": "10"}]
+
+        # Get rates
+        rates_response = shipmojo_service.calculate_shipping_rates(
+            pickup_pincode=shipping_location.pincode,
+            delivery_pincode=shipping_address.pincode,
+            payment_type=payment_type,
+            order_amount=int(order.total_amount),
+            weight=max(200, total_weight),
+            dimensions=dimensions,
+        )
+
+        if "error" not in rates_response:
+            return Response(rates_response)
+        else:
+            return Response(
+                {"error": rates_response["error"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["GET"])
+    def track(self, request, pk=None):
+        """
+        Track order status using AWB number
+        """
+        order = get_object_or_404(Order, id=pk)
+
+        if not hasattr(order, "shipping") or not order.shipping.awb_number:
+            return Response(
+                {"error": "No AWB number found. Schedule pickup first."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        shipmojo_service = ShipmojoService()
+        tracking_response = shipmojo_service.track_order(order.shipping.awb_number)
+
+        if "error" not in tracking_response and tracking_response.get("result") == "1":
+            # Update shipping status
+            shipping = order.shipping
+            tracking_data = tracking_response.get("data", {})
+
+            shipping.status = tracking_data.get("current_status", shipping.status)
+            shipping.expected_delivery = tracking_data.get("expected_delivery_date")
+
+            # Add to status updates
+            if tracking_data.get("scan_detail"):
+                shipping.status_updates = tracking_data.get("scan_detail", [])
+
+            shipping.save()
+
+            return Response(
+                {
+                    "order_number": order.order_number,
+                    "awb_number": tracking_data.get("awb_number"),
+                    "courier": tracking_data.get("courier"),
+                    "current_status": tracking_data.get("current_status"),
+                    "expected_delivery_date": tracking_data.get(
+                        "expected_delivery_date"
+                    ),
+                    "status_time": tracking_data.get("status_time"),
+                    "scan_details": tracking_data.get("scan_detail", []),
+                }
+            )
+        else:
+            return Response(
+                {"error": tracking_response.get("error", "Tracking failed")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
     @action(detail=True, methods=["POST"])
     def generate_label(self, request, pk=None):
         """
-        Generate shipping label for the order
-        """
-        order = get_object_or_404(Order, id=pk)
-     
-
-        if not hasattr(order, "shipping") or not order.shipping.shipment_id:
-            return Response(
-                {"error": "No shipment found for this order"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Initialize Shiprocket service
-        shiprocket_service = ShiprocketService()
-
-        # Generate label
-        label_response = shiprocket_service.generate_label(order.shipping.shipment_id)
-
-        if "error" not in label_response:
-            # Update shipping details with label URL
-            if "label_url" in label_response:
-                order.shipping.label_url = label_response["label_url"]
-                order.shipping.save()
-
-            return Response({"success": True, "label_url": order.shipping.label_url})
-        else:
-            return Response(
-                {
-                    "success": False,
-                    "error": label_response.get("error", "Failed to generate label"),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    @action(detail=True, methods=["POST"])
-    def generate_manifest(self, request, pk=None):
-        """
-        Generate manifest for the order shipment
+        Generate shipping label for order
         """
         order = get_object_or_404(Order, id=pk)
 
-        if not hasattr(order, "shipping") or not order.shipping.shipment_id:
+        if not hasattr(order, "shipping") or not order.shipping.awb_number:
             return Response(
-                {"error": "No shipment found for this order"},
+                {"error": "No AWB number found. Schedule pickup first."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Initialize Shiprocket service
-        shiprocket_service = ShiprocketService()
+        shipmojo_service = ShipmojoService()
+        label_response = shipmojo_service.get_order_label(order.shipping.awb_number)
 
-        # Generate manifest
-        manifest_response = shiprocket_service.generate_manifest(
-            [order.shipping.shipment_id]
-        )
+        if "error" not in label_response and label_response.get("result") == "1":
+            # Save label data
+            shipping = order.shipping
+            label_data = label_response.get("data", [{}])[0]
 
-        if "error" not in manifest_response:
-            # Update shipping details with manifest URL
-            if "manifest_url" in manifest_response:
-                order.shipping.manifest_url = manifest_response["manifest_url"]
-                order.shipping.save()
-
-            return Response(
-                {"success": True, "manifest_url": order.shipping.manifest_url}
-            )
-        else:
-            return Response(
-                {
-                    "success": False,
-                    "error": manifest_response.get(
-                        "error", "Failed to generate manifest"
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    @action(detail=True, methods=["POST"])
-    def request_pickup(self, request, pk=None):
-        """
-        Request pickup for the order shipment
-        """
-        order = get_object_or_404(Order, id=pk)
-
-        if not hasattr(order, "shipping") or not order.shipping.shipment_id:
-            return Response(
-                {"error": "No shipment found for this order"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Get pickup date from request or use tomorrow
-        pickup_date = request.data.get(
-            "pickup_date", (timezone.now() + timezone.timedelta(days=1)).date()
-        )
-
-        # Initialize Shiprocket service
-        shiprocket_service = ShiprocketService()
-
-        # Request pickup
-        pickup_response = shiprocket_service.request_pickup(
-            order.shipping.shipment_id, pickup_date
-        )
-
-        if "error" not in pickup_response:
-            # Update shipping details with pickup details
-            if "pickup_scheduled_date" in pickup_response:
-                order.shipping.pickup_scheduled = pickup_response[
-                    "pickup_scheduled_date"
-                ]
-            if "pickup_token_number" in pickup_response:
-                order.shipping.pickup_token_number = pickup_response[
-                    "pickup_token_number"
-                ]
-
-            order.shipping.status = "Pickup Scheduled"
-            order.shipping.save()
+            shipping.label_data = label_data.get("label")
+            shipping.save()
 
             return Response(
                 {
-                    "success": True,
-                    "message": "Pickup requested successfully",
-                    "pickup_date": order.shipping.pickup_scheduled,
+                    "message": "Label generated successfully",
+                    "label": label_data.get("label"),
+                    "created_at": label_data.get("created_at"),
                 }
             )
         else:
             return Response(
-                {
-                    "success": False,
-                    "error": pickup_response.get("error", "Failed to request pickup"),
-                },
+                {"error": label_response.get("error", "Label generation failed")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
     @action(detail=True, methods=["POST"])
     def cancel_shipment(self, request, pk=None):
         """
-        Cancel shipment for the order
+        Cancel shipment
         """
         order = get_object_or_404(Order, id=pk)
 
-        if not hasattr(order, "shipping") or not order.shipping.shipment_id:
+        if not hasattr(order, "shipping") or not order.shipping.awb_number:
             return Response(
-                {"error": "No shipment found for this order"},
+                {"error": "No AWB number found. Cannot cancel shipment."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Initialize Shiprocket service
-        shiprocket_service = ShiprocketService()
+        shipmojo_service = ShipmojoService()
+        cancel_response = shipmojo_service.cancel_order(
+            order.shipping.shipmojo_order_id, order.shipping.awb_number
+        )
 
-        # Cancel shipment
-        cancel_response = shiprocket_service.cancel_shipment(order.shipping.shipment_id)
-
-        if "error" not in cancel_response:
-            # Update shipping details
-            order.shipping.status = "Cancelled"
-            order.shipping.save()
+        if "error" not in cancel_response and cancel_response.get("result") == "1":
+            # Update shipping status
+            shipping = order.shipping
+            shipping.status = "Cancelled"
+            shipping.save()
 
             # Update order status
             order.status = "cancelled"
             order.save()
 
             return Response(
-                {"success": True, "message": "Shipment cancelled successfully"}
+                {
+                    "message": "Shipment cancelled successfully",
+                    "order_id": cancel_response.get("data", {}).get("order_id"),
+                }
             )
         else:
             return Response(
+                {"error": cancel_response.get("error", "Shipment cancellation failed")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["GET"])
+    def check_serviceability(self, request, pk=None):
+        """
+        Check serviceability for order
+        """
+        order = get_object_or_404(Order, id=pk)
+
+        # Get shipping address
+        shipping_address = None
+        for address in order.orderaddress_set.all():
+            if address.address_type == "shipping":
+                shipping_address = address
+                break
+
+        if not shipping_address:
+            return Response(
+                {"error": "No shipping address found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get seller shipping location
+        seller = order.seller
+        shipping_location = ShippingLocation.objects.filter(seller=seller).first()
+
+        if not shipping_location:
+            return Response(
                 {
-                    "success": False,
-                    "error": cancel_response.get("error", "Failed to cancel shipment"),
+                    "error": f"No shipping location found for seller {seller.business_name}"
                 },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shipmojo_service = ShipmojoService()
+        serviceability_response = shipmojo_service.check_serviceability(
+            pickup_pincode=shipping_location.pincode,
+            delivery_pincode=shipping_address.pincode,
+        )
+
+        if "error" not in serviceability_response:
+            return Response(serviceability_response)
+        else:
+            return Response(
+                {"error": serviceability_response["error"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=False, methods=["GET"])
+    def get_warehouses(self, request):
+        """
+        Get all warehouses from Shipmojo
+        """
+        shipmojo_service = ShipmojoService()
+        warehouses_response = shipmojo_service.get_warehouses()
+
+        if "error" not in warehouses_response:
+            return Response(warehouses_response)
+        else:
+            return Response(
+                {"error": warehouses_response["error"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=False, methods=["POST"])
+    def create_warehouse(self, request):
+        """
+        Create a new warehouse in Shipmojo
+        """
+        warehouse_data = request.data
+
+        # Validate required fields
+        required_fields = ["address_title", "address_line_one", "pin_code"]
+        missing_fields = [
+            field for field in required_fields if not warehouse_data.get(field)
+        ]
+
+        if missing_fields:
+            return Response(
+                {"error": f"Missing required fields: {', '.join(missing_fields)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shipmojo_service = ShipmojoService()
+        warehouse_response = shipmojo_service.create_warehouse(warehouse_data)
+
+        if (
+            "error" not in warehouse_response
+            and warehouse_response.get("result") == "1"
+        ):
+            return Response(warehouse_response)
+        else:
+            return Response(
+                {"error": warehouse_response.get("error", "Warehouse creation failed")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["POST"])
+    def update_warehouse(self, request, pk=None):
+        """
+        Update warehouse for an order
+        """
+        order = get_object_or_404(Order, id=pk)
+        warehouse_id = request.data.get("warehouse_id")
+
+        if not warehouse_id:
+            return Response(
+                {"error": "warehouse_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not hasattr(order, "shipping") or not order.shipping.shipmojo_order_id:
+            return Response(
+                {"error": "Order not pushed to Shipmojo yet. Create shipment first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        shipmojo_service = ShipmojoService()
+        update_response = shipmojo_service.update_warehouse(
+            order.shipping.shipmojo_order_id, warehouse_id
+        )
+
+        if "error" not in update_response and update_response.get("result") == "1":
+            # Update shipping details
+            shipping = order.shipping
+            shipping.warehouse_id = str(warehouse_id)
+            shipping.save()
+
+            return Response(
+                {
+                    "message": "Warehouse updated successfully",
+                    "order_id": update_response.get("data", {}).get("order_id"),
+                    "warehouse_id": warehouse_id,
+                }
+            )
+        else:
+            return Response(
+                {"error": update_response.get("error", "Warehouse update failed")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=False, methods=["GET"])
+    def get_return_reasons(self, request):
+        """
+        Get available return reasons from Shipmojo
+        """
+        shipmojo_service = ShipmojoService()
+        reasons_response = shipmojo_service.get_return_reasons()
+
+        if "error" not in reasons_response:
+            return Response(reasons_response)
+        else:
+            return Response(
+                {"error": reasons_response["error"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    @action(detail=True, methods=["POST"])
+    def create_return_order(self, request, pk=None):
+        """
+        Create a return order for the given order
+        """
+        order = get_object_or_404(Order, id=pk)
+
+        # Get return reason and other details
+        return_reason_id = request.data.get("return_reason_id")
+        customer_request = request.data.get("customer_request", "REFUND")
+        reason_comment = request.data.get("reason_comment", "")
+
+        if not return_reason_id:
+            return Response(
+                {"error": "return_reason_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get pickup address (original delivery address becomes pickup address for return)
+        pickup_address = None
+        for address in order.orderaddress_set.all():
+            if address.address_type == "shipping":
+                pickup_address = address
+                break
+
+        if not pickup_address:
+            return Response(
+                {"error": "No shipping address found for return pickup"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Build product details for return
+        product_details = []
+        for item in order.items.all():
+            return_quantity = request.data.get(
+                f"return_quantity_{item.id}", item.quantity
+            )
+            if return_quantity > 0:
+                product_details.append(
+                    {
+                        "name": item.name,
+                        "sku_number": item.sku or f"SKU-{item.id}",
+                        "quantity": int(return_quantity),
+                        "discount": "",
+                        "hsn": "#123",
+                        "unit_price": float(item.final_price / item.quantity),
+                        "product_category": "Other",
+                    }
+                )
+
+        if not product_details:
+            return Response(
+                {"error": "No items selected for return"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Calculate return weight
+        total_return_weight = sum(
+            item["quantity"] * 200 for item in product_details  # 200g per item
+        )
+
+        # Prepare return order data
+        return_order_data = {
+            "order_id": f"RET_{order.order_number}_{timezone.now().strftime('%Y%m%d%H%M%S')}",
+            "order_date": timezone.now().strftime("%Y-%m-%d"),
+            "order_type": "ESSENTIALS",
+            "pickup_name": pickup_address.full_name,
+            "pickup_phone": int(
+                pickup_address.phone.replace("+", "").replace("-", "").replace(" ", "")
+            ),
+            "pickup_email": pickup_address.email,
+            "pickup_address_line_one": pickup_address.street,
+            "pickup_address_line_two": pickup_address.area,
+            "pickup_pin_code": int(pickup_address.pincode),
+            "pickup_city": pickup_address.city,
+            "pickup_state": pickup_address.state,
+            "product_detail": product_details,
+            "payment_type": "PREPAID",  # Returns are typically prepaid
+            "weight": max(200, total_return_weight),
+            "length": 20,
+            "width": 15,
+            "height": 10,
+            "warehouse_id": "",
+            "return_reason_id": int(return_reason_id),
+            "customer_request": customer_request.upper(),
+            "reason_comment": reason_comment,
+        }
+
+        shipmojo_service = ShipmojoService()
+        return_response = shipmojo_service.push_return_order(return_order_data)
+
+        if "error" not in return_response and return_response.get("result") == "1":
+            # Create a return shipping details record
+            return_shipping = ShippingDetails.objects.create(
+                order=order,
+                provider="shipmojo",
+                weight=max(0.2, total_return_weight / 1000),  # Convert to kg
+                length=20,
+                width=15,
+                height=10,
+                pickup_location=f"{pickup_address.city}, {pickup_address.state}",
+                seller=order.seller,
+                is_return_order=True,
+                return_reason_id=return_reason_id,
+                return_reason_comment=reason_comment,
+                customer_request=customer_request,
+                shipmojo_order_id=return_response.get("data", {}).get("order_id"),
+                shipmojo_reference_id=return_response.get("data", {}).get(
+                    "reference_id"
+                ),
+                shipmojo_response=return_response,
+                status="Return Order Created",
+            )
+
+            return Response(
+                {
+                    "message": "Return order created successfully",
+                    "return_order_id": return_response.get("data", {}).get("order_id"),
+                    "reference_id": return_response.get("data", {}).get("reference_id"),
+                    "return_shipping_id": return_shipping.id,
+                }
+            )
+        else:
+            return Response(
+                {"error": return_response.get("error", "Return order creation failed")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1355,331 +1647,4 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response(
                 {"status": "error", "message": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    @action(detail=False, methods=["POST"])
-    def shiprocket_webhook(self, request):
-        """
-        Webhook endpoint for Shiprocket status updates
-        """
-        try:
-            # Get webhook data
-            webhook_data = request.data
-            if not webhook_data:
-                return Response(
-                    {"status": "error", "message": "Invalid webhook data"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # Find the shipping record by awb or shipment_id
-            awb = webhook_data.get("awb")
-            shipment_id = webhook_data.get("shipment_id")
-
-            shipping = None
-            if awb:
-                try:
-                    shipping = ShippingDetails.objects.get(awb_number=awb)
-                except ShippingDetails.DoesNotExist:
-                    pass
-
-            if not shipping and shipment_id:
-                try:
-                    shipping = ShippingDetails.objects.get(shipment_id=shipment_id)
-                except ShippingDetails.DoesNotExist:
-                    return Response(
-                        {"status": "error", "message": "Shipping not found"},
-                        status=status.HTTP_404_NOT_FOUND,
-                    )
-
-            if not shipping:
-                return Response(
-                    {"status": "error", "message": "Shipping not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            # Get order
-            order = shipping.order
-
-            # Update shipping status
-            current_status = webhook_data.get("current_status")
-            if current_status:
-                shipping.status = current_status
-
-                # Add to status updates
-                ShipmentStatusUpdate.objects.create(
-                    shipping=shipping,
-                    status=current_status,
-                    status_date=timezone.now(),
-                    activity=webhook_data.get("activity", "Status update from webhook"),
-                    location=webhook_data.get("location"),
-                    additional_info=webhook_data,
-                )
-
-                # Update order status based on shipping status
-                if current_status == "Delivered":
-                    order.status = "delivered"
-                    order.save()
-                elif current_status == "Shipped":
-                    order.status = "shipped"
-                    order.save()
-                elif current_status == "Cancelled":
-                    order.status = "cancelled"
-                    order.save()
-
-                # Save shipping changes
-                shipping.shiprocket_response = webhook_data
-                shipping.save()
-
-            return Response(
-                {"status": "success", "message": "Webhook processed successfully"}
-            )
-
-        except Exception as e:
-            logger.error(f"Error processing Shiprocket webhook: {str(e)}")
-            return Response(
-                {"status": "error", "message": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    @action(detail=True, methods=["GET"])
-    def check_serviceability(self, request, pk=None):
-        """
-        Check shipping serviceability for an order using:
-        - Pickup pincode from seller's first shipping location
-        - Delivery pincode from order's customer address
-        - Weight/dimensions from the order itself
-        """
-        try:
-            order = get_object_or_404(Order, id=pk)  # Get order by ID
-
-            # 1. Get delivery pincode from order (required)
-            delivery_pincode = request.query_params.get("delivery_pincode")
-            if not delivery_pincode:
-                return Response(
-                    {"success": False, "error": "Order missing delivery pincode"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            # 2. Get pickup pincode from seller's shipping locations
-            shipping_locations = ShippingLocation.objects.filter(seller=order.seller)
-            if not shipping_locations.exists():
-                return Response(
-                    {
-                        "success": False,
-                        "error": "Seller has no shipping locations configured",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            shipping_locations = shipping_locations.first()
-            pickup_pincode = shipping_locations.pincode
-
-            # 3. Prepare shipment parameters
-            weight = 0.5  # Default to 0.5kg if not set
-            dimensions = {
-                "length": 10,
-                "width": 10,
-                "height": 10,
-            }
-            is_cod = request.data.get("is_cod", False)
-
-            # 4. Call Shiprocket API
-            shiprocket_service = ShiprocketService()
-            serviceability = shiprocket_service.check_serviceability(
-                pickup_pincode=pickup_pincode,
-                delivery_pincode=delivery_pincode,
-                weight=weight,
-                cod=is_cod,
-                # Pass dimensions if your ShiprocketService supports them
-            )
-
-            # 5. Format response
-            if "error" in serviceability:
-                return Response(
-                    {"success": False, "error": serviceability["error"]},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            courier_options = []
-            if serviceability.get("data", {}).get("available_courier_companies"):
-                for courier in serviceability["data"]["available_courier_companies"]:
-                    courier_options.append(
-                        {
-                            "courier_id": courier.get("courier_company_id"),
-                            "courier_name": courier.get("courier_name"),
-                            "delivery_days": courier.get("estimated_delivery_days"),
-                            "rate": courier.get("rate"),
-                            "cod_available": courier.get("is_cod_available", False),
-                            "rating": courier.get("rating", 0),
-                        }
-                    )
-
-            return Response(
-                {
-                    "success": True,
-                    "pickup_pincode": pickup_pincode,
-                    "delivery_pincode": delivery_pincode,
-                    "weight_kg": weight,
-                    "cod_available": is_cod,
-                    "couriers": courier_options,
-                    "is_serviceable": bool(courier_options),
-                }
-            )
-
-        except Order.DoesNotExist:
-            return Response(
-                {"success": False, "error": "Order not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        except Exception as e:
-            logger.error(f"Serviceability check failed: {str(e)}")
-            return Response(
-                {"success": False, "error": "Internal server error"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    @action(detail=True, methods=["POST"])
-    def mark_as_shipped(self, request, pk=None):
-        """
-        Manually mark an order as shipped
-        """
-        order = self.get_object()
-
-        # Check if it can be marked as shipped
-        if order.status not in ["processing", "confirmed"]:
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Order cannot be marked as shipped from {order.status} status",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Get tracking details from request
-        tracking_id = request.data.get("tracking_id")
-        courier_name = request.data.get("courier_name")
-
-        if not tracking_id or not courier_name:
-            return Response(
-                {
-                    "success": False,
-                    "error": "Tracking ID and courier name are required",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Update order status
-        with transaction.atomic():
-            order.status = "shipped"
-            order.save()
-
-            # Create or update shipping details
-            shipping, created = ShippingDetails.objects.get_or_create(
-                order=order,
-                defaults={
-                    "provider": "manual",
-                    "weight": 0.5,
-                    "length": 10,
-                    "width": 10,
-                    "height": 10,
-                    "pickup_location": "Manual Entry",
-                },
-            )
-
-            shipping.tracking_id = tracking_id
-            shipping.awb_number = tracking_id
-            shipping.courier_name = courier_name
-            shipping.status = "Shipped"
-            shipping.save()
-
-            # Add status update
-            ShipmentStatusUpdate.objects.create(
-                shipping=shipping,
-                status="Shipped",
-                status_date=timezone.now(),
-                activity="Order marked as shipped manually",
-                location="",
-            )
-
-        return Response(
-            {
-                "success": True,
-                "message": "Order marked as shipped successfully",
-                "order_status": order.status,
-            }
-        )
-
-    @action(detail=True, methods=["POST"])
-    def mark_as_delivered(self, request, pk=None):
-        """
-        Manually mark an order as delivered
-        """
-        order = self.get_object()
-
-        # Check if it can be marked as delivered
-        if order.status != "shipped":
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Order cannot be marked as delivered from {order.status} status",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Update order status
-        with transaction.atomic():
-            order.status = "delivered"
-            order.save()
-
-            # Update shipping details if exists
-            if hasattr(order, "shipping"):
-                shipping = order.shipping
-                shipping.status = "Delivered"
-                shipping.save()
-
-                # Add status update
-                ShipmentStatusUpdate.objects.create(
-                    shipping=shipping,
-                    status="Delivered",
-                    status_date=timezone.now(),
-                    activity="Order marked as delivered manually",
-                    location="",
-                )
-
-        return Response(
-            {
-                "success": True,
-                "message": "Order marked as delivered successfully",
-                "order_status": order.status,
-            }
-        )
-
-    @action(detail=False, methods=["GET"])
-    def get_pickup_locations(self, request):
-        """
-        Get all pickup locations from Shiprocket
-        """
-        # Initialize Shiprocket service
-        shiprocket_service = ShiprocketService()
-
-        # Get pickup locations
-        pickup_locations = shiprocket_service.get_all_pickup_locations()
-
-        if "error" not in pickup_locations:
-            return Response(
-                {
-                    "success": True,
-                    "pickup_locations": pickup_locations.get("data", {}).get(
-                        "shipping_address", []
-                    ),
-                }
-            )
-        else:
-            return Response(
-                {
-                    "success": False,
-                    "error": pickup_locations.get(
-                        "error", "Failed to get pickup locations"
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
             )

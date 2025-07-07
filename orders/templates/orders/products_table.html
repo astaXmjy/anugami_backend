@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commission Reports - Order Products</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .filter-row {
+            display: flex;
+            gap: 20px;
+            align-items: end;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 200px;
+        }
+        
+        .filter-group label {
+            font-weight: 600;
+            color: #444;
+            font-size: 14px;
+        }
+        
+        .filter-group select {
+            padding: 12px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            transition: border-color 0.3s;
+        }
+        
+        .filter-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5a67d8;
+            transform: translateY(-1px);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .summary {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .summary h3 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 20px;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+        }
+        
+        .summary-card {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .summary-card .label {
+            font-size: 13px;
+            color: #6c757d;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .summary-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        
+        .table-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .products-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: 1200px;
+        }
+        
+        .products-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .products-table th {
+            background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+            color: white;
+            padding: 15px 10px;
+            text-align: center;
+            font-weight: 600;
+            border: 1px solid #2d3748;
+            font-size: 12px;
+            line-height: 1.3;
+        }
+        
+        .products-table td {
+            padding: 12px 10px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+            vertical-align: middle;
+        }
+        
+        .products-table tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .products-table tbody tr:hover {
+            background-color: #e6fffa;
+            transform: scale(1.001);
+            transition: all 0.2s;
+        }
+        
+        .seller-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .product-cell {
+            text-align: left;
+            max-width: 180px;
+        }
+        
+        .product-name {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 4px;
+        }
+        
+        .product-sku {
+            font-size: 11px;
+            color: #718096;
+            font-family: monospace;
+        }
+        
+        .currency {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: #2b6cb0;
+        }
+        
+        .currency.positive {
+            color: #38a169;
+        }
+        
+        .currency.negative {
+            color: #e53e3e;
+        }
+        
+        .percentage {
+            font-weight: 600;
+            color: #d69e2e;
+            background: #fef5e7;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 60px 20px;
+            color: #718096;
+        }
+        
+        .no-data h3 {
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        
+        .no-data p {
+            font-size: 16px;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 22px;
+            }
+            
+            .filter-row {
+                flex-direction: column;
+            }
+            
+            .filter-group {
+                min-width: 100%;
+            }
+            
+            .summary-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .products-table {
+                font-size: 11px;
+            }
+            
+            .products-table th,
+            .products-table td {
+                padding: 8px 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Commission Reports Dashboard</h1>
+            {% if seller_info %}
+            <p>📍 Viewing: <strong>{{ seller_info.name }}</strong> | Commission Rate: <strong>{{ seller_info.commission_rate }}%</strong></p>
+            {% else %}
+            <p>📈 Comprehensive view across all sellers and products</p>
+            {% endif %}
+        </div>
+
+        <div class="filters">
+            <form method="GET" action="{{ current_url }}" class="filter-row">
+                <div class="filter-group">
+                    <label for="seller_id">🏪 Filter by Seller:</label>
+                    <select name="seller_id" id="seller_id">
+                        <option value="">🌐 All Sellers</option>
+                        {% for seller in all_sellers %}
+                        <option value="{{ seller.id }}" {% if selected_seller_id == seller.id|stringformat:"s" %}selected{% endif %}>
+                            {{ seller.business_name }} {% if seller.commission_rate %}({{ seller.commission_rate }}%){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">🔍 Apply Filter</button>
+                <a href="{{ current_url }}" class="btn btn-secondary">🔄 Clear All</a>
+            </form>
+        </div>
+
+        <div class="summary">
+            <h3>📊 Summary Dashboard</h3>
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <div class="label">Total Products</div>
+                    <div class="value">{{ totals.total_items }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Revenue</div>
+                    <div class="value currency">₹{{ totals.total_sale_amount|floatformat:0 }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Commission</div>
+                    <div class="value currency">₹{{ totals.total_commission|floatformat:0 }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Sellers Receive</div>
+                    <div class="value currency positive">₹{{ totals.total_seller_receives|floatformat:0 }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Platform Profit</div>
+                    <div class="value currency positive">₹{{ totals.total_profit|floatformat:0 }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Shipping Costs</div>
+                    <div class="value currency">₹{{ totals.total_shipping|floatformat:0 }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            {% if table_data %}
+            <div class="table-wrapper">
+                <table class="products-table">
+                    <thead>
+                        <tr>
+                            <th width="120px">🏪 Seller</th>
+                            <th width="180px">📦 Product</th>
+                            <th width="100px">💰 Sale Price<br><small>(₹)</small></th>
+                            <th width="80px">📊 GST<br><small>(%)</small></th>
+                            <th width="120px">🚚 Delivery<br><small>Charges (₹)</small></th>
+                            <th width="120px">🏷️ Listing /<br>💵 Consumer<br><small>(₹)</small></th>
+                            <th width="100px">💼 Commission<br><small>Rate (%)</small></th>
+                            <th width="120px">💰 Commission<br><small>Amount (₹)</small></th>
+                            <th width="120px">📊 GST on<br><small>Commission (₹)</small></th>
+                            <th width="130px">💳 Amount After<br><small>Paying (₹)</small></th>
+                            <th width="130px">🏦 Seller<br><small>Receives (₹)</small></th>
+                            <th width="100px">📊 Claimable<br><small>GST (%)</small></th>
+                            <th width="130px">💎 Claimable<br><small>Amount (₹)</small></th>
+                            <th width="120px">📈 Platform<br><small>Profit (₹)</small></th>
+                            <th width="100px">💰 COD<br><small>Charges (₹)</small></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in table_data %}
+                        <tr>
+                            <td>
+                                <span class="seller-badge">{{ row.seller_name|truncatechars:15 }}</span>
+                            </td>
+                            <td class="product-cell">
+                                <div class="product-name" title="{{ row.product_name }}">
+                                    {{ row.product_name|truncatechars:25 }}
+                                </div>
+                                {% if row.sku and row.sku != 'N/A' %}
+                                <div class="product-sku">{{ row.sku }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="currency">₹{{ row.sale_price|floatformat:2 }}</td>
+                            <td><span class="percentage">{{ row.gst_rate|floatformat:0 }}%</span></td>
+                            <td class="currency">₹{{ row.delivery_charges|floatformat:2 }}</td>
+                            <td class="currency">
+                                ₹{{ row.listing_price|floatformat:2 }}<br>
+                                <small style="color: #666;">₹{{ row.consumer_price|floatformat:2 }}</small>
+                            </td>
+                            <td><span class="percentage">{{ row.commission_rate|floatformat:1 }}%</span></td>
+                            <td class="currency">₹{{ row.commission_for_each_seller|floatformat:2 }}</td>
+                            <td class="currency">₹{{ row.gst_amount_inclusive|floatformat:2 }}</td>
+                            <td class="currency positive">₹{{ row.amount_receives_after_paying|floatformat:2 }}</td>
+                            <td class="currency positive">₹{{ row.amount_seller_receives|floatformat:2 }}</td>
+                            <td><span class="percentage">{{ row.gst_rate|floatformat:0 }}%</span></td>
+                            <td class="currency positive">₹{{ row.claimable_amount|floatformat:2 }}</td>
+                            <td class="currency positive">₹{{ row.profit_amount|floatformat:2 }}</td>
+                            <td class="currency">₹{{ row.cod_charges|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="no-data">
+                <h3>📭 No Data Found</h3>
+                <p>No order items match your current filters. Try selecting a different seller or clearing filters.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        // Auto-submit when seller changes
+        document.getElementById('seller_id').addEventListener('change', function() {
+            this.form.submit();
+        });
+        
+        // Color coding for currency values
+        document.querySelectorAll('.currency').forEach(function(element) {
+            const value = parseFloat(element.textContent.replace(/[₹,]/g, ''));
+            if (!isNaN(value)) {
+                if (value > 0 && !element.classList.contains('positive')) {
+                    element.style.color = '#38a169';
+                } else if (value < 0) {
+                    element.classList.add('negative');
+                }
+            }
+        });
+        
+        // Highlight high commission rates
+        document.querySelectorAll('.percentage').forEach(function(element) {
+            const value = parseFloat(element.textContent);
+            if (value >= 25) {
+                element.style.background = '#fed7d7';
+                element.style.color = '#c53030';
+            } else if (value >= 20) {
+                element.style.background = '#fef5e7';
+                element.style.color = '#d69e2e';
+            }
+        });
+    </script>
+</body>
+</html>

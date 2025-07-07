@@ -25,6 +25,12 @@ class Seller(models.Model):
     business_address = models.TextField(blank=True, null=True)
     gst_number = models.CharField(max_length=15, blank=True, null=True)
     pan_number = models.CharField(max_length=10, blank=True, null=True)
+    commission_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=15.00,  # Default 15% commission
+        help_text="Commission rate as percentage (e.g., 15.00 for 15%)"
+    )
 
     # PAN document URL stored from Firebase
     pan_document_url = models.URLField(blank=True, null=True)

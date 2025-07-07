@@ -2,6 +2,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import OrderViewSet
+from .api_views import *
+from .html_views import *
 
 app_name = "orders"
 
@@ -37,6 +39,14 @@ urlpatterns = [
         OrderViewSet.as_view({"post": "checkout"}),
         name="checkout",
     ),
+    # ShipMojo shipping endpoints
+    # Core checkout endpoints
+    path(
+        "orders/checkout/",
+        OrderViewSet.as_view({"post": "checkout"}),
+        name="checkout",
+    ),
+    # Basic shipping management
     path(
         "orders/<int:pk>/create-shipment/",
         OrderViewSet.as_view({"post": "create_shipment"}),
@@ -48,45 +58,70 @@ urlpatterns = [
         name="track-order",
     ),
     path(
-        "orders/<int:pk>/generate-label/",
-        OrderViewSet.as_view({"post": "generate_label"}),
-        name="generate-label",
-    ),
-    path(
-        "orders/<int:pk>/generate-manifest/",
-        OrderViewSet.as_view({"post": "generate_manifest"}),
-        name="generate-manifest",
-    ),
-    path(
-        "orders/<int:pk>/request-pickup/",
-        OrderViewSet.as_view({"post": "request_pickup"}),
-        name="request-pickup",
-    ),
-    path(
-        "orders/<int:pk>/cancel-shipment/",
-        OrderViewSet.as_view({"post": "cancel_shipment"}),
-        name="cancel-shipment",
-    ),
-    path(
         "orders/<int:pk>/check-serviceability/",
         OrderViewSet.as_view({"get": "check_serviceability"}),
         name="check-serviceability",
     ),
     path(
-        "orders/<int:pk>/mark-shipped/",
-        OrderViewSet.as_view({"post": "mark_as_shipped"}),
-        name="mark-as-shipped",
+        "orders/<int:pk>/get-shipping-rates/",
+        OrderViewSet.as_view({"get": "get_shipping_rates"}),
+        name="get-shipping-rates",
+    ),
+    # Courier management
+    path(
+        "orders/<int:pk>/assign-courier/",
+        OrderViewSet.as_view({"post": "assign_courier"}),
+        name="assign-courier",
     ),
     path(
-        "orders/<int:pk>/mark-delivered/",
-        OrderViewSet.as_view({"post": "mark_as_delivered"}),
-        name="mark-as-delivered",
+        "orders/<int:pk>/auto-assign-courier/",
+        OrderViewSet.as_view({"post": "auto_assign_courier"}),
+        name="auto-assign-courier",
     ),
-    # Utility endpoints
+    # Pickup management
     path(
-        "pickup-locations/",
-        OrderViewSet.as_view({"get": "get_pickup_locations"}),
-        name="pickup-locations",
+        "orders/<int:pk>/schedule-pickup/",
+        OrderViewSet.as_view({"post": "schedule_pickup"}),
+        name="schedule-pickup",
+    ),
+    # Label and documentation
+    path(
+        "orders/<int:pk>/generate-label/",
+        OrderViewSet.as_view({"post": "generate_label"}),
+        name="generate-label",
+    ),
+    # Order cancellation
+    path(
+        "orders/<int:pk>/cancel-shipment/",
+        OrderViewSet.as_view({"post": "cancel_shipment"}),
+        name="cancel-shipment",
+    ),
+    # Warehouse management
+    path(
+        "orders/warehouses/",
+        OrderViewSet.as_view({"get": "get_warehouses"}),
+        name="get-warehouses",
+    ),
+    path(
+        "orders/warehouses/create/",
+        OrderViewSet.as_view({"post": "create_warehouse"}),
+        name="create-warehouse",
+    ),
+    path(
+        "orders/<int:pk>/update-warehouse/",
+        OrderViewSet.as_view({"post": "update_warehouse"}),
+        name="update-warehouse",
+    ),
+    # Return management
+    path(
+        "orders/return-reasons/",
+        OrderViewSet.as_view({"get": "get_return_reasons"}),
+        name="get-return-reasons",
+    ),
+    path(
+        "orders/<int:pk>/create-return/",
+        OrderViewSet.as_view({"post": "create_return_order"}),
+        name="create-return-order",
     ),
     path(
         "orders/<int:pk>/download-invoice/",
@@ -100,11 +135,6 @@ urlpatterns = [
         name="phonepe-webhook",
     ),
     path(
-        "webhooks/shiprocket/",
-        OrderViewSet.as_view({"post": "shiprocket_webhook"}),
-        name="shiprocket-webhook",
-    ),
-    path(
         "orders/<int:pk>/request-invoice/",
         OrderViewSet.as_view({"post": "request_invoice"}),
         name="request-invoice",
@@ -113,5 +143,25 @@ urlpatterns = [
         "orders/respond-to-invoice-request/",
         OrderViewSet.as_view({"post": "respond_to_invoice_request"}),
         name="respond-to-invoice-request",
+    ),
+    path(
+        "all-products/",
+        all_orders_products,
+        name="all_orders_products",
+    ),
+    path(
+        "by-seller/",
+        orders_by_seller,
+        name="orders_by_seller",
+    ),
+    path(
+        "update-commission/",
+        update_seller_commission,
+        name="update_seller_commission",
+    ),
+    path(
+        "see-commision-reports/",
+        products_table_view,
+        name="product-table-view",
     ),
 ]
